@@ -8,7 +8,7 @@
     postgres_user: admin
     postgres_password: admin_password
     db_name: boilerplate_db
-    app_host: 172.30.226.117
+    app_host: hng
     rabbitmq_host: 91.229.239.213
     email_username: your-email@gmail.com
     email_password: your-email-password
