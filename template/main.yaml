@@ -1,0 +1,221 @@
+- name: Setup Java Web Application on Ubuntu
+  hosts: all
+  become: yes
+  vars:
+    hng_user: hng
+    repo_url: https://github.com/hngprojects/hng_boilerplate_java_web.git
+    app_dir: /opt/stage_5b
+    postgres_user: admin
+    postgres_password: admin_password
+    db_name: boilerplate_db
+    app_host: 172.30.226.117
+    rabbitmq_host: 91.229.239.213
+    email_username: your-email@gmail.com
+    email_password: your-email-password
+
+  tasks:
+    - name: Update and upgrade apt packages
+      apt:
+        update_cache: yes
+        upgrade: yes
+
+    - name: Install required packages
+      apt:
+        name:
+          - openjdk-17-jdk
+          - maven
+          - postgresql
+          - postgresql-contrib
+          - nginx
+          - rabbitmq-server
+          - git
+        state: present
+
+    - name: Ensure PostgreSQL service is running and enabled
+      service:
+        name: postgresql
+        state: started
+        enabled: yes
+
+    - name: Start and enable RabbitMQ service
+      service:
+        name: rabbitmq-server
+        state: started
+        enabled: yes
+
+    - name: Create PostgreSQL database
+      become_user: postgres
+      postgresql_db:
+        name: "{{ db_name }}"
+
+    - name: Create PostgreSQL user
+      become_user: postgres
+      postgresql_user:
+        name: "{{ postgres_user }}"
+        password: "{{ postgres_password }}"
+        db: "{{ db_name }}"  # Specify the database context
+        priv: "ALL"
+
+    - name: Grant all privileges on database
+      become_user: postgres
+      postgresql_privs:
+        db: "{{ db_name }}"
+        role: "{{ postgres_user }}"
+        privs: "ALL"
+        type: database
+
+    - name: Create application user
+      user:
+        name: "{{ hng_user }}"
+        shell: /bin/bash
+        create_home: yes
+        state: present
+
+    - name: Add sudo privileges to application user
+      copy:
+        dest: /etc/sudoers.d/{{ hng_user }}
+        content: "{{ hng_user }} ALL=(ALL) NOPASSWD:ALL"
+        mode: '0440'
+
+    - name: Create application directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ hng_user }}"
+        group: "{{ hng_user }}"
+        mode: '0755'
+
+    - name: Save PostgreSQL admin credentials to /var/secrets/pg_pw.txt
+      copy:
+        content: |
+          {{ postgres_password }}
+        dest: /var/secrets/pg_pw.txt
+        owner: "{{ hng_user }}"
+        group: "{{ hng_user }}"
+        mode: '0600'
+
+    - name: Clone the repository
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        clone: yes
+        update: yes
+        force: yes
+        version: devops
+      become: yes
+      become_user: "{{ hng_user }}"
+
+    - name: Update pom.xml
+      template:
+        src: pom.xml.j2
+        dest: "/opt/stage_5b/pom.xml"
+      become: yes
+      become_user: hng
+
+    - name: Resolve application dependencies
+      command: mvn dependency:resolve
+      args:
+        chdir: "{{ app_dir }}"
+      become: yes
+      become_user: "{{ hng_user }}"
+
+    - name: Clean and install the application
+      command: mvn clean install
+      args:
+        chdir: "{{ app_dir }}"
+      become: yes
+      become_user: "{{ hng_user }}"
+
+    - name: Verify PostgreSQL connection details
+      shell: |
+        PGPASSWORD="{{ postgres_password }}" psql -h {{ app_host }} -U {{ postgres_user }} -d {{ db_name }} -c "\dt"
+      become: yes
+      become_user: postgres
+      register: psql_output
+      failed_when: psql_output.rc != 0
+
+    - debug:
+        var: psql_output.stdout_lines
+
+    - name: Create systemd service for the application
+      copy:
+        dest: /etc/systemd/system/hng-java-boilerplate.service
+        content: |
+          [Unit]
+          Description=HNG Java Boilerplate Application
+          After=network.target
+
+          [Service]
+          User={{ hng_user }}
+          WorkingDirectory={{ app_dir }}
+          ExecStart=/usr/bin/mvn spring-boot:run
+          SuccessExitStatus=143
+          StandardOutput=append:/var/log/stage_5b/out.log
+          StandardError=append:/var/log/stage_5b/error.log
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Create logging directory
+      file:
+        path: /var/log/stage_5b
+        state: directory
+        owner: "{{ hng_user }}"
+        group: "{{ hng_user }}"
+        mode: '0755'
+
+    - name: Create log files
+      file:
+        path: "{{ item }}"
+        state: touch
+        owner: "{{ hng_user }}"
+        group: "{{ hng_user }}"
+        mode: '0644'
+      loop:
+        - /var/log/stage_5b/error.log
+        - /var/log/stage_5b/out.log
+
+    - name: Start and enable the application service
+      systemd:
+        name: hng-java-boilerplate
+        enabled: yes
+        state: started
+
+    - name: Install Nginx configuration
+      copy:
+        dest: /etc/nginx/sites-available/hng_java_boilerplate
+        content: |
+          server {
+              listen 80;
+              server_name {{ app_host }};
+
+              location / {
+                  proxy_pass http://127.0.0.1:8080;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+              }
+          }
+      notify:
+        - Reload Nginx
+
+    - name: Enable the Nginx configuration
+      file:
+        src: /etc/nginx/sites-available/hng_java_boilerplate
+        dest: /etc/nginx/sites-enabled/hng_java_boilerplate
+        state: link
+        force: yes
+      notify:
+        - Reload Nginx
+
+  handlers:
+    - name: Reload application
+      systemd:
+        name: hng-java-boilerplate
+        state: restarted
+
+    - name: Reload Nginx
+      service:
+        name: nginx
+        state: reloaded
