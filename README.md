@@ -6,16 +6,20 @@ This project contains an Ansible playbook and associated configuration files to 
 
 ```
 ansible_project/
-├── README.md            # This README file
-├── ansible.cfg          # Ansible configuration file
-├── inventory.cfg        # Inventory file defining the hosts
-├── main.yaml            # Main playbook to set up the application
-└── templates/           # Directory containing template files
+├── README.md            
+├── ansible.cfg          
+├── inventory.cfg        
+├── main.yaml            
+└── templates/   
+    ├── application.properties.j2  
+    └── pom.xml.j2              
 ```
 
 ## Prerequisites
 
-- Ansible installed on your local machine.
+- Python on your machine
+
+- Ansible installed on your machine.
 
 - SSH access to the target Ubuntu server.
 
