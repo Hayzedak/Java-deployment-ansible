@@ -6,7 +6,6 @@
     repo_url: https://github.com/hngprojects/hng_boilerplate_java_web.git
     app_dir: /opt/stage_5b
     postgres_user: admin
-    postgres_password: admin_password
     db_name: boilerplate_db
     app_host: hng
     rabbitmq_host: 91.229.239.213
@@ -42,6 +41,15 @@
         name: rabbitmq-server
         state: started
         enabled: yes
+
+    - name: Generate PostgreSQL admin password
+      set_fact:
+        postgres_password: "{{ lookup('password', '/dev/null length=16 chars=ascii_letters') }}"
+
+    - name: Set PostgreSQL admin password environment variable
+      lineinfile:
+        path: /etc/environment
+        line: 'POSTGRES_PASSWORD={{ postgres_password }}'
 
     - name: Create PostgreSQL database
       become_user: postgres
@@ -107,7 +115,7 @@
 
     - name: Update pom.xml
       template:
-        src: pom.xml.j2
+        src: templates/pom.xml.j2
         dest: "/opt/stage_5b/pom.xml"
       become: yes
       become_user: hng
@@ -119,12 +127,28 @@
       become: yes
       become_user: "{{ hng_user }}"
 
+    - name: Copy application.properties file
+      template:
+        src: templates/application.properties.j2
+        dest: /opt/stage_5b/src/main/resources/application.properties
+      become: yes
+      become_user: hng
+
+    - name: Remove target directory if it exists
+      file:
+        path: "{{ app_dir }}/target"
+        state: absent
+      become: yes
+      become_user: "{{ hng_user }}"
+
     - name: Clean and install the application
       command: mvn clean install
       args:
         chdir: "{{ app_dir }}"
       become: yes
       become_user: "{{ hng_user }}"
+      environment:
+        POSTGRES_PASSWORD: "{{ postgres_password }}"
 
     - name: Verify PostgreSQL connection details
       shell: |
@@ -148,13 +172,19 @@
           [Service]
           User={{ hng_user }}
           WorkingDirectory={{ app_dir }}
-          ExecStart=/usr/bin/mvn spring-boot:run
+          ExecStart=/usr/bin/java -jar {{ app_dir }}/target/your-application.jar
           SuccessExitStatus=143
           StandardOutput=append:/var/log/stage_5b/out.log
           StandardError=append:/var/log/stage_5b/error.log
+          Restart=always
+          RestartSec=10
 
           [Install]
           WantedBy=multi-user.target
+
+    - name: Reload systemd configuration
+      systemd:
+        daemon_reload: yes
 
     - name: Create logging directory
       file:
@@ -190,7 +220,7 @@
               server_name {{ app_host }};
 
               location / {
-                  proxy_pass http://127.0.0.1:8080;
+                  proxy_pass http://127.0.0.1:3000;
                   proxy_set_header Host $host;
                   proxy_set_header X-Real-IP $remote_addr;
                   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -205,17 +235,12 @@
         src: /etc/nginx/sites-available/hng_java_boilerplate
         dest: /etc/nginx/sites-enabled/hng_java_boilerplate
         state: link
-        force: yes
       notify:
         - Reload Nginx
 
   handlers:
-    - name: Reload application
-      systemd:
-        name: hng-java-boilerplate
-        state: restarted
-
     - name: Reload Nginx
       service:
         name: nginx
         state: reloaded
+
