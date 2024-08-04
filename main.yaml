@@ -52,12 +52,12 @@
         line: 'POSTGRES_PASSWORD={{ postgres_password }}'
 
     - name: Create PostgreSQL database
-      become_user: postgres
+      #become_user: postgres
       postgresql_db:
         name: "{{ db_name }}"
 
     - name: Create PostgreSQL user
-      become_user: postgres
+      #become_user: postgres
       postgresql_user:
         name: "{{ postgres_user }}"
         password: "{{ postgres_password }}"
@@ -65,7 +65,7 @@
         priv: "ALL"
 
     - name: Grant all privileges on database
-      become_user: postgres
+      #become_user: postgres
       postgresql_privs:
         db: "{{ db_name }}"
         role: "{{ postgres_user }}"
@@ -111,42 +111,42 @@
         force: yes
         version: devops
       become: yes
-      become_user: "{{ hng_user }}"
+      #become_user: "{{ hng_user }}"
 
     - name: Update pom.xml
       template:
         src: templates/pom.xml.j2
         dest: "/opt/stage_5b/pom.xml"
       become: yes
-      become_user: hng
+      #become_user: hng
 
     - name: Resolve application dependencies
       command: mvn dependency:resolve
       args:
         chdir: "{{ app_dir }}"
       become: yes
-      become_user: "{{ hng_user }}"
+      #become_user: "{{ hng_user }}"
 
     - name: Copy application.properties file
       template:
         src: templates/application.properties.j2
         dest: /opt/stage_5b/src/main/resources/application.properties
       become: yes
-      become_user: hng
+      #become_user: hng
 
     - name: Remove target directory if it exists
       file:
         path: "{{ app_dir }}/target"
         state: absent
       become: yes
-      become_user: "{{ hng_user }}"
+      #become_user: "{{ hng_user }}"
 
     - name: Clean and install the application
       command: mvn clean install
       args:
         chdir: "{{ app_dir }}"
       become: yes
-      become_user: "{{ hng_user }}"
+      #become_user: "{{ hng_user }}"
       environment:
         POSTGRES_PASSWORD: "{{ postgres_password }}"
 
@@ -154,7 +154,7 @@
       shell: |
         PGPASSWORD="{{ postgres_password }}" psql -h {{ app_host }} -U {{ postgres_user }} -d {{ db_name }} -c "\dt"
       become: yes
-      become_user: postgres
+      #become_user: postgres
       register: psql_output
       failed_when: psql_output.rc != 0
 
