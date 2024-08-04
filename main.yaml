@@ -28,6 +28,7 @@
           - nginx
           - rabbitmq-server
           - git
+          - python3-psycopg2
         state: present
 
     - name: Ensure PostgreSQL service is running and enabled
